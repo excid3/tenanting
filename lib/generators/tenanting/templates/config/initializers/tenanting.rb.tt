@@ -38,21 +38,35 @@ module AccountScopedJob
   end
 
   def serialize
-    super.merge("current_account" => current_account&.to_global_id&.to_s)
+    super.merge("current_account" => current_account&.to_global_id&.to_s || @serialized_current_account)
   end
 
   def deserialize(job_data)
     super
-    @current_account = GlobalID::Locator.locate(job_data["current_account"]) if job_data["current_account"]
+    @serialized_current_account = job_data["current_account"]
   end
 
   def perform_now
-    if current_account
-      Current.set(account: current_account) { super }
-    else
+    Current.set(account: current_account || Current.account) { super }
+  end
+
+  private
+    # The account is located with the arguments, inside perform_now's rescue. If it was deleted
+    # after the job was enqueued, the job raises ActiveJob::DeserializationError, which
+    # discard_on and retry_on can handle, like a deleted record passed as an argument.
+    def deserialize_arguments_if_needed
+      if @serialized_current_account && !current_account
+        Current.account = @current_account = locate_current_account
+      end
+
       super
     end
-  end
+
+    def locate_current_account
+      GlobalID::Locator.locate(@serialized_current_account)
+    rescue ActiveRecord::RecordNotFound
+      raise ActiveJob::DeserializationError
+    end
 end
 
 ActiveSupport.on_load(:active_job) { prepend AccountScopedJob }

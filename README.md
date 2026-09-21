@@ -299,6 +299,17 @@ The account is serialized as a GlobalID in the job's `current_account` key. Argu
 deserialized inside the account, so scoped records can be passed as arguments. A job enqueued
 without an account raises `MissingAccountError` as soon as it queries a scoped model.
 
+If the account is deleted before the job runs, the job raises `ActiveJob::DeserializationError`,
+the same as when a record passed as an argument has been deleted. Unless it's handled, your queue
+backend retries it and then marks it as failed. To drop these jobs instead, discard them in
+`ApplicationJob`:
+
+```ruby
+class ApplicationJob < ActiveJob::Base
+  discard_on ActiveJob::DeserializationError
+end
+```
+
 ### Mailers
 
 `ApplicationMailer#default_url_options` adds the account prefix, so links in emails point into

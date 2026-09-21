@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Jobs whose account was deleted after they were enqueued raise
+  `ActiveJob::DeserializationError`, so `discard_on` and `retry_on` can handle them
+
 ## 0.1.0 (2026-09-21)
 
 - Initial release: `bin/rails generate tenanting`
