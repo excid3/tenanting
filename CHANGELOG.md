@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `--account-from=domain` serves each account from its own subdomain, like `acme.example.com`,
+  or a custom domain
 - `--account-from=cookie` keeps the current account in a signed cookie instead of the URL.
   Controllers choose the account with `switch_to_account`
 - Jobs whose account was deleted after they were enqueued raise

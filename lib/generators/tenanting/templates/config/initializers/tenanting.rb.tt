@@ -28,6 +28,29 @@ end
 
 Rails.application.config.middleware.use AccountSlug::Extractor
 
+<% elsif domain? -%>
+# Accounts are served from subdomains of the app's domain, like acme.example.com, or from their
+# own custom domain, like projects.acme.com. Set the domain with config.x.account_domain in
+# config/environments.
+module AccountDomain
+  def self.domain
+    Rails.configuration.x.account_domain
+  end
+
+  # "acme" for acme.example.com. nil for the app's domain itself, deeper subdomains, and custom domains.
+  def self.subdomain_of(host)
+    if host.end_with?(".#{domain}")
+      subdomain = host.delete_suffix(".#{domain}")
+      subdomain unless subdomain.include?(".")
+    end
+  end
+
+  # Whether the host serves pages outside of any account, like the sign in page and account picker.
+  def self.root_host?(host)
+    host == domain || host == "www.#{domain}"
+  end
+end
+
 <% end -%>
 # Jobs run in the account they were enqueued from. This covers every Active Job,
 # including deliver_later, not just jobs that inherit from ApplicationJob.

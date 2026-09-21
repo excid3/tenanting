@@ -7,6 +7,9 @@ end
 module AccountIntegrationTestHelper
 <% if path_prefix? -%>
   # Also prefixes generated URLs with the account, so requests resolve it from the path.
+<% elsif domain? -%>
+  # Also sends requests to the account's host, so requests resolve it from the domain. Sign in
+  # after switching, since sign ins belong to a host, like in a browser.
 <% else -%>
   # Also sets the account cookie, so requests resolve it the same way as in production.
 <% end -%>
@@ -15,6 +18,8 @@ module AccountIntegrationTestHelper
     @switched_account = account
 <% if path_prefix? -%>
     self.default_url_options = default_url_options.merge(script_name: account&.slug)
+<% elsif domain? -%>
+    host! account ? account.host : "www.#{AccountDomain.domain}"
 <% else -%>
 
     if account

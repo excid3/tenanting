@@ -5,6 +5,8 @@ class AccountsController < ApplicationController
     @accounts = Current.user.accounts.order(:name)
 <% if path_prefix? -%>
     redirect_to root_url(script_name: @accounts.first.slug) if @accounts.one?
+<% elsif domain? -%>
+    redirect_to root_url(host: @accounts.first.host), allow_other_host: true if @accounts.one?
 <% end -%>
   end
 end

@@ -9,7 +9,7 @@ end
 desc "Generate Rails apps with the authentication and tenanting generators and run their tests"
 task "test:integration" do
   Bundler.with_original_env do
-    %w[ path cookie ].each { |mode| sh "bin/integration #{mode}" }
+    %w[ path domain cookie ].each { |mode| sh "bin/integration #{mode}" }
   end
 end
 

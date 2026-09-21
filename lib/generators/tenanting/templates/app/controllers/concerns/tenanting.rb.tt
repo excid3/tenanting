@@ -21,6 +21,13 @@ module Tenanting
     end
 
     def find_account
+<% if domain? -%>
+<% if authentication? -%>
+      Current.user&.accounts&.find_by_host(request.host)
+<% else -%>
+      Account.find_by_host(request.host)
+<% end -%>
+<% else -%>
       if account_id = <%= path_prefix? ? 'request.env["account_slug.id"]' : "cookies.signed[:account_id]" %>
 <% if authentication? -%>
         Current.user&.accounts&.find_by(id: account_id)
@@ -28,6 +35,7 @@ module Tenanting
         Account.find_by(id: account_id)
 <% end -%>
       end
+<% end -%>
     end
 
     def request_account
@@ -38,6 +46,12 @@ module Tenanting
         head :not_found
       else
         redirect_to accounts_url(script_name: "")
+      end
+<% elsif domain? -%>
+      if AccountDomain.root_host?(request.host)
+        redirect_to accounts_url
+      else
+        head :not_found
       end
 <% else -%>
       redirect_to accounts_url
