@@ -280,7 +280,7 @@ without an account prefix redirects to the account picker, which goes straight i
 when the user only has one.
 
 Without authentication, any account ID in the URL is accepted, and requests without one return
-404. Add your own authorization in `find_account_by_slug`.
+404. Add your own authorization in `find_account`.
 
 ## Background jobs, mailers, and broadcasts
 
@@ -404,7 +404,7 @@ Remove the `AccountSlug` middleware from `config/initializers/tenanting.rb`, add
 accounts, and look the account up from the request in the `Tenanting` concern:
 
 ```ruby
-def find_account_by_slug
+def find_account
   Current.user&.accounts&.find_by(subdomain: request.subdomain)
 end
 ```
@@ -416,7 +416,7 @@ Instead, set the `host` in those places, or set `subdomain:` in your URL helpers
 
 `AccountSlug::PATTERN` matches a numeric first path segment. To keep database IDs out of URLs,
 store a random public ID on each account, change the pattern to match it, look it up by that
-column in `find_account_by_slug`, and return it from `Account#slug`.
+column in `find_account`, and return it from `Account#slug`.
 
 Because any numeric first segment is treated as an account, avoid top-level routes whose path
 starts with a number, or use a longer format (Fizzy pads IDs to at least 7 digits).
@@ -462,7 +462,7 @@ It does not cover:
 | `ActsAsTenant.with_tenant(account) { }` | `Current.set(account: account) { }` |
 | `ActsAsTenant.without_tenant { }` | `AccountScoping.across_accounts { }` |
 | `set_current_tenant_by_subdomain` | Path prefixes, or see [Subdomains](#subdomains-or-custom-domains-instead-of-a-path-prefix) |
-| `set_current_tenant_through_filter` | Edit `find_account_by_slug` |
+| `set_current_tenant_through_filter` | Edit `find_account` |
 | `config.require_tenant = true` | Always on |
 | `validates_uniqueness_to_tenant :name` | `validates :name, uniqueness: { scope: :account_id }` |
 | `ActsAsTenant::ActiveJobExtensions` | Built in, for every Active Job |
@@ -480,7 +480,7 @@ To migrate:
    Reach them through an association instead, like `Current.account.users`.
 3. Replace `ActsAsTenant` calls using the table above.
 4. Remove your `set_current_tenant_*` calls. `Tenanting` sets `Current.account` from the URL, or
-   from wherever you change `find_account_by_slug` to look.
+   from wherever you change `find_account` to look.
 5. Wrap code that ran without a tenant in `Current.set` or `across_accounts`. Your test suite will
    point these out by raising `AccountScoping::MissingAccountError`.
 6. Remove the `acts_as_tenant` gem.
@@ -494,7 +494,8 @@ bundle exec rake test:integration  # Generates a Rails app and runs its tests
 ```
 
 The integration task creates a new Rails app, runs the authentication and tenanting generators,
-adds the models and tests in `test/integration/app`, and runs the app's test suite.
+adds the models and tests from `test/integration/app` and `test/integration/path`, and runs the
+app's test suite.
 
 ## License
 

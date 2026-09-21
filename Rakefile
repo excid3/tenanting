@@ -8,7 +8,7 @@ end
 
 desc "Generate a Rails app with the authentication and tenanting generators and run its tests"
 task "test:integration" do
-  Bundler.with_original_env { sh "bin/integration" }
+  Bundler.with_original_env { sh "bin/integration path" }
 end
 
 task default: :test

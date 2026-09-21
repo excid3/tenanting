@@ -17,10 +17,10 @@ module Tenanting
     end
 
     def resume_account
-      Current.account ||= find_account_by_slug
+      Current.account ||= find_account
     end
 
-    def find_account_by_slug
+    def find_account
       if account_id = request.env["account_slug.id"]
 <% if authentication? -%>
         Current.user&.accounts&.find_by(id: account_id)
