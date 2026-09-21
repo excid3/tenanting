@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Records can be moved to another account inside `AccountScoping.across_accounts`
+- `scoped_to_account` passes other options to the account association, like `counter_cache: true`
 - `--account-from=domain` serves each account from its own subdomain, like `acme.example.com`,
   or a custom domain
 - `--account-from=cookie` keeps the current account in a signed cookie instead of the URL.

@@ -167,9 +167,20 @@ class AccountScopingTest < ActiveSupport::TestCase
     end
   end
 
-  test "through: can't be combined with optional:" do
+  test "other options go to the account association" do
+    switch_to_account accounts(:one)
+
+    assert_difference -> { accounts(:one).reload.projects_count } do
+      Project.create!(name: "Counted")
+    end
+  end
+
+  test "through: can't be combined with options for the account association" do
     error = assert_raises(ArgumentError) { Class.new(ApplicationRecord) { scoped_to_account through: :project, optional: true } }
-    assert_match "Make the project association optional instead", error.message
+    assert_match "optional: is for models with an account_id column. Pass it to the project association instead", error.message
+
+    error = assert_raises(ArgumentError) { Class.new(ApplicationRecord) { scoped_to_account through: :project, counter_cache: true } }
+    assert_match "counter_cache: is for models with an account_id column", error.message
   end
 
   # scoped_to_account optional:

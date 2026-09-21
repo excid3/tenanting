@@ -54,9 +54,11 @@ module AccountScoping
     # [through]  A belongs_to association to a scoped model, for tables without an account_id column.
     # [optional] Allows records without an account. They can be created and queried outside of any
     #            account, but are hidden from, and can't be created in, an account.
-    def scoped_to_account(through: nil, optional: false)
-      if through && optional
-        raise ArgumentError, "optional: is for models with an account_id column. Make the #{through} association optional instead."
+    #
+    # Other options go to the account association, e.g. scoped_to_account counter_cache: true.
+    def scoped_to_account(through: nil, optional: false, **options)
+      if through && (option = optional ? :optional : options.keys.first)
+        raise ArgumentError, "#{option}: is for models with an account_id column. Pass it to the #{through} association instead."
       end
 
       self.account_scoping = { through: through, optional: optional }.freeze
@@ -64,7 +66,7 @@ module AccountScoping
       if through
         delegate :account, :account_id, to: through, allow_nil: true
       else
-        belongs_to :account, optional: optional, default: -> { Current.account }
+        belongs_to :account, optional: optional, default: -> { Current.account }, **options
       end
 
       default_scope(all_queries: true) { AccountScoping.scope_to_current_account(self) }

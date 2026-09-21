@@ -15,7 +15,7 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
     end
     assert_file "app/models/current.rb", /attribute :account, :all_accounts/
     assert_file "app/models/concerns/account_scoping.rb" do |content|
-      assert_match "def scoped_to_account(through: nil, optional: false)", content
+      assert_match "def scoped_to_account(through: nil, optional: false, **options)", content
       assert_match "raise MissingAccountError", content
     end
     assert_file "app/models/application_record.rb", /  primary_abstract_class\n\n  include AccountScoping\n/
