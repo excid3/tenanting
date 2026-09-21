@@ -3,6 +3,8 @@ class AccountsController < ApplicationController
 
   def index
     @accounts = Current.user.accounts.order(:name)
+<% if path_prefix? -%>
     redirect_to root_url(script_name: @accounts.first.slug) if @accounts.one?
+<% end -%>
   end
 end

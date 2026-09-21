@@ -1,0 +1,8 @@
+class Accounts::SwitchesController < ApplicationController
+  allow_accountless_access
+
+  def create
+    switch_to_account Current.user.accounts.find(params[:account_id])
+    redirect_to root_url
+  end
+end

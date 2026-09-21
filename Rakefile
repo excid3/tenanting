@@ -6,9 +6,11 @@ Rake::TestTask.new(:test) do |t|
   t.test_files = FileList["test/generators/**/*_test.rb"]
 end
 
-desc "Generate a Rails app with the authentication and tenanting generators and run its tests"
+desc "Generate Rails apps with the authentication and tenanting generators and run their tests"
 task "test:integration" do
-  Bundler.with_original_env { sh "bin/integration path" }
+  Bundler.with_original_env do
+    %w[ path cookie ].each { |mode| sh "bin/integration #{mode}" }
+  end
 end
 
 task default: :test

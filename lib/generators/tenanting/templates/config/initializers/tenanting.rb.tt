@@ -1,3 +1,4 @@
+<% if path_prefix? -%>
 # Account URLs are prefixed with the account ID: /123/projects/1
 #
 # The middleware moves that prefix from PATH_INFO into SCRIPT_NAME, the same way a mounted
@@ -27,6 +28,7 @@ end
 
 Rails.application.config.middleware.use AccountSlug::Extractor
 
+<% end -%>
 # Jobs run in the account they were enqueued from. This covers every Active Job,
 # including deliver_later, not just jobs that inherit from ApplicationJob.
 module AccountScopedJob
@@ -86,7 +88,7 @@ Rails.application.console do
     end
   }
 end
-<% if turbo? -%>
+<% if path_prefix? && turbo? -%>
 
 # Turbo Stream broadcasts render outside of a request, so render them with the account
 # prefix to keep links in broadcast partials pointing into the account.

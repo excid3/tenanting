@@ -5,11 +5,27 @@ module AccountTestHelper
 end
 
 module AccountIntegrationTestHelper
+<% if path_prefix? -%>
   # Also prefixes generated URLs with the account, so requests resolve it from the path.
+<% else -%>
+  # Also sets the account cookie, so requests resolve it the same way as in production.
+<% end -%>
   def switch_to_account(account)
     super
     @switched_account = account
+<% if path_prefix? -%>
     self.default_url_options = default_url_options.merge(script_name: account&.slug)
+<% else -%>
+
+    if account
+      ActionDispatch::TestRequest.create.cookie_jar.tap do |cookie_jar|
+        cookie_jar.signed[:account_id] = account.id
+        cookies[:account_id] = cookie_jar[:account_id]
+      end
+    else
+      cookies.delete(:account_id)
+    end
+<% end -%>
   end
 
   # Rails resets Current around each request, so restore the account for assertions afterwards.

@@ -5,10 +5,12 @@ class Account < ApplicationRecord
 
 <% end -%>
   validates :name, presence: true
+<% if path_prefix? -%>
 
   # The path prefix for this account's URLs. Pass it as the script_name to link into an
   # account from outside of it, e.g. root_url(script_name: account.slug).
   def slug
     "/#{id}"
   end
+<% end -%>
 end
