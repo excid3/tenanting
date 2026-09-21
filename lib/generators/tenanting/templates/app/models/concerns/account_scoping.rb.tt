@@ -70,7 +70,7 @@ module AccountScoping
       default_scope(all_queries: true) { AccountScoping.scope_to_current_account(self) }
 
       validate :account_is_current, if: -> { Current.account && !Current.all_accounts }
-      validate :account_is_unchanged, on: :update
+      validate :account_is_unchanged, on: :update, unless: -> { Current.all_accounts }
       validate :associations_belong_to_same_account
     end
 
@@ -95,6 +95,7 @@ module AccountScoping
       end
     end
 
+    # Records stay in their account, except across_accounts, for moving them between accounts on purpose.
     def account_is_unchanged
       if changing_account? && account_id != account_id_in_database_for_scoping
         errors.add(account_scoping_association.name, account_scoping[:through] ? "must belong to the same account" : "can't be changed")

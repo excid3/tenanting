@@ -58,6 +58,18 @@ class AccountScopingTest < ActiveSupport::TestCase
     assert_includes project.errors[:account], "can't be changed"
   end
 
+  test "across_accounts can move records to another account" do
+    AccountScoping.across_accounts do
+      projects(:one).update!(account: accounts(:two))
+      tasks(:two).update!(project: projects(:one))
+    end
+
+    Current.set(account: accounts(:two)) do
+      assert_includes Project.all, projects(:one)
+      assert_equal projects(:one), tasks(:two).reload.project
+    end
+  end
+
   test "an account is required" do
     project = AccountScoping.across_accounts { Project.new(name: "Orphan") }
 
@@ -128,13 +140,12 @@ class AccountScopingTest < ActiveSupport::TestCase
   end
 
   test "through models can't move to another account" do
-    AccountScoping.across_accounts do
-      task = tasks(:one)
-      task.project = projects(:two)
+    switch_to_account accounts(:one)
+    task = tasks(:one)
+    task.project = AccountScoping.across_accounts { projects(:two) }
 
-      assert_not task.valid?
-      assert_includes task.errors[:project], "must belong to the same account"
-    end
+    assert_not task.valid?
+    assert_includes task.errors[:project], "must belong to the same account"
   end
 
   test "through models can move within their account" do
