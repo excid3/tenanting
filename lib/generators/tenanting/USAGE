@@ -7,10 +7,16 @@ Description:
     Run the authentication generator first to also get memberships between users
     and accounts, and an account picker.
 
+    Accounts come from a URL prefix by default. Pass --account-from=cookie to keep
+    the current account in a signed cookie, where controllers choose it with
+    switch_to_account(account).
+
 Example:
     bin/rails generate authentication
     bin/rails generate tenanting
     bin/rails db:migrate
+
+    bin/rails generate tenanting --account-from=cookie
 
 Then scope models to an account:
 

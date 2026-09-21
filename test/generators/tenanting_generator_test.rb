@@ -53,6 +53,50 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
     assert_file "test/fixtures/memberships.yml"
   end
 
+  test "keeps the account in a cookie with --account-from=cookie" do
+    create_app turbo: true, mailer: true
+    run_generator %w[ --account-from=cookie ]
+
+    assert_file "app/models/account.rb" do |content|
+      assert_no_match "def slug", content
+    end
+    assert_file "app/controllers/concerns/tenanting.rb" do |content|
+      assert_match "cookies.signed[:account_id]", content
+      assert_match "Account.find_by(id: account_id)", content
+      assert_match "def switch_to_account(account)", content
+      assert_no_match "account_slug", content
+    end
+    assert_file "config/initializers/tenanting.rb" do |content|
+      assert_no_match "AccountSlug", content
+      assert_no_match "Turbo", content
+      assert_match "module AccountScopedJob", content
+    end
+    assert_file "app/mailers/application_mailer.rb" do |content|
+      assert_no_match "script_name", content
+    end
+    assert_file "test/test_helpers/account_test_helper.rb" do |content|
+      assert_match "cookie_jar.signed[:account_id] = account.id", content
+      assert_no_match "script_name", content
+    end
+    assert_no_file "app/controllers/accounts/switches_controller.rb"
+  end
+
+  test "switches accounts in the account picker with --account-from=cookie and authentication" do
+    create_app authentication: true
+    run_generator %w[ --account-from=cookie ]
+
+    assert_file "app/controllers/concerns/tenanting.rb" do |content|
+      assert_match "Current.user&.accounts&.find_by(id: account_id)", content
+      assert_match "redirect_to accounts_url\n", content
+    end
+    assert_file "app/controllers/accounts_controller.rb" do |content|
+      assert_no_match "switch_to_account", content
+    end
+    assert_file "app/controllers/accounts/switches_controller.rb", /switch_to_account Current\.user\.accounts\.find\(params\[:account_id\]\)/
+    assert_file "app/views/accounts/index.html.erb", /button_to account\.name, account_switch_path\(account\)/
+    assert_file "config/routes.rb", /resources :accounts, only: :index do\n    resource :switch, only: :create, module: :accounts\n  end/
+  end
+
   test "renders Turbo Stream broadcasts in the account when turbo-rails is installed" do
     create_app turbo: true
     run_generator

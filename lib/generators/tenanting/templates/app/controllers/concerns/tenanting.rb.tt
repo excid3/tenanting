@@ -21,7 +21,7 @@ module Tenanting
     end
 
     def find_account
-      if account_id = request.env["account_slug.id"]
+      if account_id = <%= path_prefix? ? 'request.env["account_slug.id"]' : "cookies.signed[:account_id]" %>
 <% if authentication? -%>
         Current.user&.accounts&.find_by(id: account_id)
 <% else -%>
@@ -31,14 +31,24 @@ module Tenanting
     end
 
     def request_account
-<% if authentication? -%>
+<% if !authentication? -%>
+      head :not_found
+<% elsif path_prefix? -%>
       if request.env["account_slug.id"]
         head :not_found
       else
         redirect_to accounts_url(script_name: "")
       end
 <% else -%>
-      head :not_found
+      redirect_to accounts_url
 <% end -%>
     end
+<% if cookie? -%>
+
+    # Sets the account for this request and the ones after it, e.g. from an account picker.
+    def switch_to_account(account)
+      cookies.signed.permanent[:account_id] = { value: account.id, httponly: true, same_site: :lax }
+      Current.account = account
+    end
+<% end -%>
 end

@@ -11,6 +11,9 @@ class TenantingGenerator < Rails::Generators::Base
 
   source_root File.expand_path("templates", __dir__)
 
+  class_option :account_from, type: :string, default: "path", enum: %w[ path cookie ],
+    desc: "Where requests find their account: a URL path prefix (/123/projects) or a signed cookie"
+
   def create_tenanting_files
     template "app/models/account.rb"
     template "app/models/concerns/account_scoping.rb"
@@ -20,6 +23,7 @@ class TenantingGenerator < Rails::Generators::Base
     if authentication?
       template "app/models/membership.rb"
       template "app/controllers/accounts_controller.rb"
+      template "app/controllers/accounts/switches_controller.rb" if cookie?
       template "app/views/accounts/index.html.erb"
     end
   end
@@ -64,7 +68,7 @@ class TenantingGenerator < Rails::Generators::Base
   end
 
   def configure_mailers
-    if exist?("app/mailers/application_mailer.rb")
+    if path_prefix? && exist?("app/mailers/application_mailer.rb")
       inject_into_class "app/mailers/application_mailer.rb", "ApplicationMailer", <<~RUBY.indent(2)
         # Links in emails point into the account they were sent from, including with deliver_later.
         def default_url_options
@@ -76,7 +80,17 @@ class TenantingGenerator < Rails::Generators::Base
   end
 
   def configure_routes
-    route "resources :accounts, only: :index" if authentication?
+    if authentication?
+      if cookie?
+        route <<~RUBY.chomp
+          resources :accounts, only: :index do
+            resource :switch, only: :create, module: :accounts
+          end
+        RUBY
+      else
+        route "resources :accounts, only: :index"
+      end
+    end
   end
 
   def add_migrations
@@ -96,6 +110,14 @@ class TenantingGenerator < Rails::Generators::Base
   private
     def authentication?
       exist?("app/controllers/concerns/authentication.rb") && exist?("app/models/user.rb")
+    end
+
+    def path_prefix?
+      options[:account_from] == "path"
+    end
+
+    def cookie?
+      options[:account_from] == "cookie"
     end
 
     def turbo?

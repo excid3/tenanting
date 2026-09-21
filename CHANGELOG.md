@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `--account-from=cookie` keeps the current account in a signed cookie instead of the URL.
+  Controllers choose the account with `switch_to_account`
 - Jobs whose account was deleted after they were enqueued raise
   `ActiveJob::DeserializationError`, so `discard_on` and `retry_on` can handle them
 

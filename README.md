@@ -22,6 +22,7 @@ and every query on those tables is scoped to the current account.
 - [Scoping models](#scoping-models)
 - [The current account](#the-current-account)
 - [Controllers and URLs](#controllers-and-urls)
+- [Accounts without URL prefixes](#accounts-without-url-prefixes)
 - [Background jobs, mailers, and broadcasts](#background-jobs-mailers-and-broadcasts)
 - [Console, seeds, and data migrations](#console-seeds-and-data-migrations)
 - [Testing](#testing)
@@ -48,6 +49,14 @@ bin/rails generate tenanting
 bin/rails db:migrate
 ```
 
+By default, account URLs are prefixed with the account ID. Choose where requests find their
+account with `--account-from`:
+
+| Option | URLs | |
+| --- | --- | --- |
+| `--account-from=path` (default) | `example.com/123/projects` | [Controllers and URLs](#controllers-and-urls) |
+| `--account-from=cookie` | `example.com/projects` | [Without URL prefixes](#accounts-without-url-prefixes) |
+
 Then scope your models to an account:
 
 ```ruby
@@ -60,11 +69,11 @@ end
 
 | File | What it does |
 | --- | --- |
-| `app/models/account.rb` | The tenant. `#slug` returns its URL prefix, `/123` |
+| `app/models/account.rb` | The tenant. `#slug` returns its URL prefix, `/123` (path prefixes only) |
 | `app/models/current.rb` | Adds `attribute :account, :all_accounts` (created if it doesn't exist) |
 | `app/models/concerns/account_scoping.rb` | `scoped_to_account`, included in `ApplicationRecord` |
 | `app/controllers/concerns/tenanting.rb` | Sets `Current.account` for each request, included in `ApplicationController` |
-| `config/initializers/tenanting.rb` | URL prefix middleware, plus the account for jobs, broadcasts, and the console |
+| `config/initializers/tenanting.rb` | URL prefix middleware (path prefixes only), plus the account for jobs, broadcasts, and the console |
 | `db/migrate/*_create_accounts.rb` | The `accounts` table |
 | `test/test_helpers/account_test_helper.rb` | `switch_to_account` for tests |
 | `test/fixtures/accounts.yml` | Two accounts, `one` and `two` |
@@ -75,6 +84,7 @@ When the authentication generator has been run, you also get:
 | --- | --- |
 | `app/models/membership.rb` | Joins users to accounts. `User has_many :accounts, through: :memberships` |
 | `app/controllers/accounts_controller.rb` | An account picker, at `/accounts` |
+| `app/controllers/accounts/switches_controller.rb` | Switches to an account from the picker (cookies only) |
 | `db/migrate/*_create_memberships.rb` | The `memberships` table, unique on user and account |
 | `test/fixtures/memberships.yml` | Users `one` and `two` in accounts `one` and `two` |
 
@@ -282,6 +292,50 @@ when the user only has one.
 Without authentication, any account ID in the URL is accepted, and requests without one return
 404. Add your own authorization in `find_account`.
 
+## Accounts without URL prefixes
+
+Some apps don't want the account in the URL. Generate with `--account-from=cookie` to keep the
+current account in a signed cookie instead:
+
+```sh
+bin/rails generate tenanting --account-from=cookie
+```
+
+URLs stay as they are, like `/projects/1`, and the `Tenanting` concern reads the account from the
+cookie instead of the URL. To choose an account, call `switch_to_account` in a controller. It
+sets `Current.account` for the current request and saves it in the cookie for later ones:
+
+```ruby
+class Accounts::SwitchesController < ApplicationController
+  allow_accountless_access
+
+  def create
+    switch_to_account Current.user.accounts.find(params[:account_id])
+    redirect_to root_url
+  end
+end
+```
+
+With authentication, that controller is generated for you. The account picker at `/accounts`
+posts to it, so it's the only place that changes the account, even when the user only has one. The cookie is checked against
+`Current.user.accounts` on every request. If the account in it isn't one of the user's, like after
+another user signs in on the same browser, the request is sent to the picker instead.
+
+Without authentication, requests without an account return 404 Not Found. Call
+`switch_to_account` wherever your app decides which account someone is in, and add your own
+authorization in `find_account`.
+
+Compared to path prefixes:
+
+- **One account per browser.** Every tab uses the account that was chosen last, and switching
+  accounts in one tab switches the others on their next request.
+- **Links don't include the account.** A link to `/projects/1` sent to someone opens in their
+  current account. For a record in another account, it returns 404 until they switch accounts.
+- **Mailers and broadcasts don't add an account prefix.** Jobs, including `deliver_later` and
+  `broadcast_*_later`, still run in the account they were enqueued from.
+- **Integration tests set the cookie.** `switch_to_account` sets the signed cookie, the same way
+  `sign_in_as` sets the session cookie, so requests find the account just like in production.
+
 ## Background jobs, mailers, and broadcasts
 
 ### Jobs
@@ -376,8 +430,8 @@ after each request, because Rails resets `Current` around requests:
 ```ruby
 class ProjectsControllerTest < ActionDispatch::IntegrationTest
   setup do
-    sign_in_as users(:one)
     switch_to_account accounts(:one)
+    sign_in_as users(:one)
   end
 
   test "create" do
@@ -462,7 +516,7 @@ It does not cover:
 | `ActsAsTenant.with_tenant(account) { }` | `Current.set(account: account) { }` |
 | `ActsAsTenant.without_tenant { }` | `AccountScoping.across_accounts { }` |
 | `set_current_tenant_by_subdomain` | Path prefixes, or see [Subdomains](#subdomains-or-custom-domains-instead-of-a-path-prefix) |
-| `set_current_tenant_through_filter` | Edit `find_account` |
+| `set_current_tenant_through_filter` | `--account-from=cookie` and `switch_to_account`, or edit `find_account` |
 | `config.require_tenant = true` | Always on |
 | `validates_uniqueness_to_tenant :name` | `validates :name, uniqueness: { scope: :account_id }` |
 | `ActsAsTenant::ActiveJobExtensions` | Built in, for every Active Job |
@@ -493,9 +547,10 @@ bundle exec rake test              # Generator tests
 bundle exec rake test:integration  # Generates a Rails app and runs its tests
 ```
 
-The integration task creates a new Rails app, runs the authentication and tenanting generators,
-adds the models and tests from `test/integration/app` and `test/integration/path`, and runs the
-app's test suite.
+The integration task creates a new Rails app for each of `--account-from=path` and
+`--account-from=cookie`, runs the authentication and tenanting generators, adds the models and
+tests from `test/integration/app` and `test/integration/<mode>`, and runs the app's test suite.
+Run one mode with `bin/integration cookie`.
 
 ## License
 

@@ -3,7 +3,8 @@
 # account-scoped models and tests from test/integration/app and test/integration/<mode>,
 # and runs the app's test suite.
 #
-#   bin/integration path  # Accounts in the URL path
+#   bin/integration         # Accounts in the URL path
+#   bin/integration cookie  # Accounts in a cookie
 set -euo pipefail
 
 MODE="${1:-path}"
@@ -23,7 +24,7 @@ GEMS
 bundle install --quiet
 
 bin/rails generate authentication
-bin/rails generate tenanting
+bin/rails generate tenanting --account-from="$MODE"
 bin/rails generate scaffold Project name:string account:references --quiet
 bin/rails generate model Tag name:string account:references --quiet
 bin/rails generate model Task title:string project:references tag:references --quiet
