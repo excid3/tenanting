@@ -52,7 +52,7 @@ Then scope your models to an account:
 
 ```ruby
 class Project < ApplicationRecord
-  include AccountScoped
+  scoped_to_account
 end
 ```
 
@@ -62,7 +62,7 @@ end
 | --- | --- |
 | `app/models/account.rb` | The tenant. `#slug` returns its URL prefix, `/123` |
 | `app/models/current.rb` | Adds `attribute :account, :all_accounts` (created if it doesn't exist) |
-| `app/models/concerns/account_scoped.rb` | Scopes a model to `Current.account` and validates account ownership |
+| `app/models/concerns/account_scoping.rb` | `scoped_to_account`, included in `ApplicationRecord` |
 | `app/controllers/concerns/tenanting.rb` | Sets `Current.account` for each request, included in `ApplicationController` |
 | `config/initializers/tenanting.rb` | URL prefix middleware, plus the account for jobs, broadcasts, and the console |
 | `db/migrate/*_create_accounts.rb` | The `accounts` table |
@@ -78,12 +78,15 @@ When the authentication generator has been run, you also get:
 | `db/migrate/*_create_memberships.rb` | The `memberships` table, unique on user and account |
 | `test/fixtures/memberships.yml` | Users `one` and `two` in accounts `one` and `two` |
 
-The generator also adds `allow_accountless_access` to the sessions and passwords controllers,
-and prefixes URLs in `ApplicationMailer` with the account.
+The generator also includes `AccountScoping` in `ApplicationRecord`, adds `allow_accountless_access`
+to the sessions and passwords controllers, and prefixes URLs in `ApplicationMailer` with the account.
 
 ## Scoping models
 
-Add an `account` reference to each account-owned table, then include `AccountScoped`:
+Call `scoped_to_account` in any model that belongs to an account. There are three ways to
+connect a model to its account.
+
+### Models with an `account_id` column
 
 ```sh
 bin/rails generate model Project name:string account:references
@@ -91,7 +94,7 @@ bin/rails generate model Project name:string account:references
 
 ```ruby
 class Project < ApplicationRecord
-  include AccountScoped
+  scoped_to_account
 
   has_many :tasks, dependent: :destroy
 
@@ -99,7 +102,7 @@ class Project < ApplicationRecord
 end
 ```
 
-`AccountScoped` adds `belongs_to :account` and a default scope on `Current.account`:
+This adds `belongs_to :account` and a default scope on `Current.account`:
 
 ```ruby
 Current.account = basecamp
@@ -109,16 +112,78 @@ Project.find(other_id)    # Raises ActiveRecord::RecordNotFound for another acco
 Project.create!(name: "Launch").account  # => basecamp
 ```
 
-The default scope uses `all_queries: true`, so it also applies to updating, deleting, and
-reloading individual records, not just to reads.
+### Models that belong to a scoped model: `through:`
 
-It also adds three validations:
+Tables like `tasks` don't need their own `account_id` when their parent already has one. Scope
+them through the parent's `belongs_to` association instead:
+
+```ruby
+class Task < ApplicationRecord
+  belongs_to :project
+  scoped_to_account through: :project
+end
+
+class Comment < ApplicationRecord
+  belongs_to :task
+  scoped_to_account through: :task
+end
+```
+
+Queries filter on the parent's own scope, so chains of any depth work:
+
+```sql
+-- Task.all
+SELECT * FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE account_id = 1)
+
+-- Comment.all
+SELECT * FROM comments WHERE task_id IN (
+  SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE account_id = 1))
+```
+
+Through models get `account` and `account_id` from their parent, and can't be created under,
+or moved to, another account's parent. They can move to another parent in the same account.
+
+An `account_id` column is still worth adding to large, frequently queried tables, because it
+makes the scope a single indexed comparison instead of a subquery.
+
+### Records that can exist outside of an account: `optional:`
+
+```ruby
+class Tag < ApplicationRecord
+  scoped_to_account optional: true
+end
+```
+
+The `account_id` column can be `NULL`, for records you create outside of any account, such as in
+seeds or an admin area:
+
+```ruby
+AccountScoping.across_accounts { Tag.create!(name: "Urgent") }  # No account
+```
+
+Inside an account, records without an account are hidden, and new records always belong to the
+current account. That keeps `Tag.delete_all` in one account from deleting records every account
+shares. When an account should also see the shared records, ask for them explicitly:
+
+```ruby
+AccountScoping.across_accounts { Tag.where(account: [ Current.account, nil ]) }
+```
+
+`optional:` is for models with an `account_id` column. For a through model whose parent is
+optional, make the `belongs_to` optional instead.
+
+### Protections
+
+The default scope uses `all_queries: true`, so it also applies to updating, deleting, and
+reloading individual records, not just to reads. Scoped models also get three validations:
 
 - **The account must be the current one.** Mass-assigning an `account_id`, like a scaffold's
-  `params.expect(project: [ :name, :account_id ])`, can't move a record into another account.
-- **The account can't change** once a record is saved.
-- **`belongs_to` records must be in the same account.** `Task.create!(project_id: params[:project_id])`
-  fails when the project belongs to another account, whether it's assigned by ID or as a record.
+  `params.expect(project: [ :name, :account_id ])`, can't create a record in another account.
+  The same goes for a through model's parent, like a `project_id` from another account.
+- **The account can't change** once a record is saved, including by moving a through model to a
+  parent in another account.
+- **`belongs_to` records must be in the same account.** `Task.create!(tag_id: params[:tag_id])`
+  fails when the tag belongs to another account, whether it's assigned by ID or as a record.
 
 Uniqueness validations are not scoped automatically. Add `scope: :account_id` where values only
 need to be unique within an account.
@@ -131,12 +196,12 @@ request, per job, and per thread, and reset automatically afterwards.
 ### Scoped models raise without an account
 
 Querying a scoped model when `Current.account` isn't set raises
-`AccountScoped::MissingAccountError`:
+`AccountScoping::MissingAccountError`:
 
 ```ruby
 Project.count
-# => AccountScoped::MissingAccountError: Project is scoped to an account, but Current.account
-#    isn't set. Use Current.set(account: account) { ... } or AccountScoped.across_accounts { ... }.
+# => AccountScoping::MissingAccountError: Project is scoped to an account, but Current.account
+#    isn't set. Use Current.set(account: account) { ... } or AccountScoping.across_accounts { ... }.
 ```
 
 This is intentional. A job, rake task, or mailer that forgot to set an account fails loudly in
@@ -159,7 +224,7 @@ end
 When you mean to work with every account, say so:
 
 ```ruby
-AccountScoped.across_accounts do
+AccountScoping.across_accounts do
   Project.where(archived: true).delete_all
 end
 ```
@@ -348,8 +413,8 @@ starts with a number, or use a longer format (Fizzy pads IDs to at least 7 digit
 ### Allowing unscoped queries
 
 If you'd rather have queries run unscoped without an account, like ActsAsTenant's default,
-replace the `raise` in `AccountScoped`'s default scope with `all`. Consider requiring the
-account in production anyway.
+replace the `raise` in `AccountScoping.scope_to_current_account` with `relation`. Consider
+requiring the account in production anyway.
 
 ## Security model
 
@@ -365,8 +430,8 @@ Tenanting stops:
 
 It does not cover:
 
-- **Models without `AccountScoped`.** Tables without an `account_id`, such as a join table that
-  is only reached through a scoped model, rely on that model being scoped.
+- **Models without `scoped_to_account`.** Tables that aren't scoped, such as a join table that is
+  only reached through a scoped model, rely on that model being scoped. Consider `through:`.
 - **`unscoped`, raw SQL, and `across_accounts`.** These bypass scoping on purpose. Review them.
 - **Polymorphic `belongs_to`.** These aren't checked by the same-account validation.
 - **Cache keys.** Include the account in keys you build yourself, like
@@ -378,11 +443,13 @@ It does not cover:
 
 | ActsAsTenant | Tenanting |
 | --- | --- |
-| `acts_as_tenant :account` | `include AccountScoped` |
+| `acts_as_tenant :account` | `scoped_to_account` |
+| `acts_as_tenant :account, optional: true` | `scoped_to_account optional: true` |
+| `acts_as_tenant :account, through: :account_users` | A `has_many :through`, like `User#accounts`. See below |
 | `ActsAsTenant.current_tenant` | `Current.account` |
 | `ActsAsTenant.current_tenant = account` | `Current.account = account` |
 | `ActsAsTenant.with_tenant(account) { }` | `Current.set(account: account) { }` |
-| `ActsAsTenant.without_tenant { }` | `AccountScoped.across_accounts { }` |
+| `ActsAsTenant.without_tenant { }` | `AccountScoping.across_accounts { }` |
 | `set_current_tenant_by_subdomain` | Path prefixes, or see [Subdomains](#subdomains-or-custom-domains-instead-of-a-path-prefix) |
 | `set_current_tenant_through_filter` | Edit `find_account_by_slug` |
 | `config.require_tenant = true` | Always on |
@@ -394,12 +461,17 @@ To migrate:
 
 1. Run `bin/rails generate tenanting`. If your tenant model already exists, delete the generated
    `Account` model and migration and keep yours. Add `#slug` to it.
-2. Replace `acts_as_tenant :account` with `include AccountScoped` in each model.
+2. Replace `acts_as_tenant :account` with `scoped_to_account` in each model. Models that only
+   reach their account through a parent can use `scoped_to_account through: :parent`.
+
+   ActsAsTenant's `through:` is different: it scopes a model like `User` to accounts through a
+   many-to-many join table. Records like that belong to several accounts, so they aren't scoped.
+   Reach them through an association instead, like `Current.account.users`.
 3. Replace `ActsAsTenant` calls using the table above.
 4. Remove your `set_current_tenant_*` calls. `Tenanting` sets `Current.account` from the URL, or
    from wherever you change `find_account_by_slug` to look.
 5. Wrap code that ran without a tenant in `Current.set` or `across_accounts`. Your test suite will
-   point these out by raising `AccountScoped::MissingAccountError`.
+   point these out by raising `AccountScoping::MissingAccountError`.
 6. Remove the `acts_as_tenant` gem.
 
 ## Development

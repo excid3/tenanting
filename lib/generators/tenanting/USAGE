@@ -1,6 +1,6 @@
 Description:
     Generates multitenancy for the app: an Account model, Current.account, an
-    AccountScoped model concern, a Tenanting controller concern, account URL
+    AccountScoping model concern, a Tenanting controller concern, account URL
     prefixes (/123/projects), and account propagation to jobs, mailers, and the
     console.
 
@@ -12,8 +12,13 @@ Example:
     bin/rails generate tenanting
     bin/rails db:migrate
 
-    Then scope models to an account:
+Then scope models to an account:
 
-    class Project < ApplicationRecord
-      include AccountScoped
-    end
+class Project < ApplicationRecord
+  scoped_to_account
+end
+
+class Task < ApplicationRecord
+  belongs_to :project
+  scoped_to_account through: :project
+end

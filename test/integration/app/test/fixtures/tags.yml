@@ -1,0 +1,10 @@
+one:
+  name: Tag One
+  account: one
+
+two:
+  name: Tag Two
+  account: two
+
+shared:
+  name: Shared Tag

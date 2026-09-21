@@ -13,7 +13,7 @@ class TenantingGenerator < Rails::Generators::Base
 
   def create_tenanting_files
     template "app/models/account.rb"
-    template "app/models/concerns/account_scoped.rb"
+    template "app/models/concerns/account_scoping.rb"
     template "app/controllers/concerns/tenanting.rb"
     template "config/initializers/tenanting.rb"
 
@@ -29,6 +29,14 @@ class TenantingGenerator < Rails::Generators::Base
       inject_into_class "app/models/current.rb", "Current", "  attribute :account, :all_accounts\n"
     else
       template "app/models/current.rb"
+    end
+  end
+
+  def configure_application_record
+    if read("app/models/application_record.rb").include?("  primary_abstract_class\n")
+      inject_into_file "app/models/application_record.rb", "\n  include AccountScoping\n", after: "  primary_abstract_class\n"
+    else
+      inject_into_class "app/models/application_record.rb", "ApplicationRecord", "  include AccountScoping\n"
     end
   end
 
@@ -91,7 +99,7 @@ class TenantingGenerator < Rails::Generators::Base
     end
 
     def turbo?
-      exist?("Gemfile") && File.read(File.join(destination_root, "Gemfile")).match?(/^\s*gem ["']turbo-rails["']/)
+      exist?("Gemfile") && read("Gemfile").match?(/^\s*gem ["']turbo-rails["']/)
     end
 
     def migration_version
@@ -100,5 +108,9 @@ class TenantingGenerator < Rails::Generators::Base
 
     def exist?(path)
       File.exist?(File.join(destination_root, path))
+    end
+
+    def read(path)
+      File.read(File.join(destination_root, path))
     end
 end

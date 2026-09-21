@@ -1,0 +1,129 @@
+# Scopes models to Current.account. It's included in ApplicationRecord, so any model can call:
+#
+#   class Project < ApplicationRecord
+#     scoped_to_account                    # Has an account_id column
+#   end
+#
+#   class Task < ApplicationRecord
+#     belongs_to :project
+#     scoped_to_account through: :project  # Gets its account from a scoped parent
+#   end
+#
+#   class Tag < ApplicationRecord
+#     scoped_to_account optional: true     # Can also exist outside of any account
+#   end
+#
+# Querying a scoped model without Current.account raises, so a missing account is caught
+# instead of silently reading or writing across accounts. Be explicit instead:
+#
+#   Current.set(account: account) { Project.all }     # One account
+#   AccountScoping.across_accounts { Project.count }  # Every account
+module AccountScoping
+  extend ActiveSupport::Concern
+
+  class MissingAccountError < StandardError; end
+
+  def self.across_accounts(&)
+    Current.set(all_accounts: true, &)
+  end
+
+  def self.scope_to_current_account(relation) # :nodoc:
+    if Current.all_accounts
+      relation
+    elsif Current.account
+      if through = relation.model.account_scoping[:through]
+        # Relies on the parent's own scope, so chains of through models work at any depth.
+        parent = relation.model.reflect_on_association(through)
+        relation.where(parent.foreign_key => parent.klass.select(parent.association_primary_key))
+      else
+        relation.where(account: Current.account)
+      end
+    else
+      raise MissingAccountError, "#{relation.model.name} is scoped to an account, but Current.account isn't set. " \
+        "Use Current.set(account: account) { ... } or AccountScoping.across_accounts { ... }."
+    end
+  end
+
+  included do
+    class_attribute :account_scoping, instance_writer: false
+  end
+
+  class_methods do
+    # Scopes all queries to Current.account.
+    #
+    # [through]  A belongs_to association to a scoped model, for tables without an account_id column.
+    # [optional] Allows records without an account. They can be created and queried outside of any
+    #            account, but are hidden from, and can't be created in, an account.
+    def scoped_to_account(through: nil, optional: false)
+      if through && optional
+        raise ArgumentError, "optional: is for models with an account_id column. Make the #{through} association optional instead."
+      end
+
+      self.account_scoping = { through: through, optional: optional }.freeze
+
+      if through
+        delegate :account, :account_id, to: through, allow_nil: true
+      else
+        belongs_to :account, optional: optional, default: -> { Current.account }
+      end
+
+      default_scope(all_queries: true) { AccountScoping.scope_to_current_account(self) }
+
+      validate :account_is_current, if: -> { Current.account && !Current.all_accounts }
+      validate :account_is_unchanged, on: :update
+      validate :associations_belong_to_same_account
+    end
+
+    def scoped_to_account?
+      account_scoping.present?
+    end
+  end
+
+  private
+    def account_scoping_association
+      self.class.reflect_on_association(account_scoping[:through] || :account)
+    end
+
+    def changing_account?
+      will_save_change_to_attribute?(account_scoping_association.foreign_key)
+    end
+
+    # Guards against mass-assigning another account or parent, e.g. params.expect(project: [ :name, :account_id ])
+    def account_is_current
+      unless account_id == Current.account.id
+        errors.add(account_scoping_association.name, account_scoping[:through] ? "must belong to the current account" : "must be the current account")
+      end
+    end
+
+    def account_is_unchanged
+      if changing_account? && account_id != account_id_in_database_for_scoping
+        errors.add(account_scoping_association.name, account_scoping[:through] ? "must belong to the same account" : "can't be changed")
+      end
+    end
+
+    # Prevents pointing at another account's records by ID, e.g. Comment.create!(task_id: params[:task_id])
+    def associations_belong_to_same_account
+      self.class.reflect_on_all_associations(:belongs_to).each do |association|
+        next if association.polymorphic? || association.name == account_scoping_association.name
+        next unless association.klass.try(:scoped_to_account?)
+        next unless (id = self[association.foreign_key]) && (will_save_change_to_attribute?(association.foreign_key) || changing_account?)
+
+        if account_id_of(association, id) != account_id
+          errors.add(association.name, "must belong to the same account")
+        end
+      end
+    end
+
+    def account_id_in_database_for_scoping
+      if account_scoping[:through]
+        account_id_of(account_scoping_association, attribute_in_database(account_scoping_association.foreign_key))
+      else
+        attribute_in_database(:account_id)
+      end
+    end
+
+    # The account of the associated record with this ID, whichever account it's in.
+    def account_id_of(association, id)
+      AccountScoping.across_accounts { association.klass.find_by(association.association_primary_key => id)&.account_id } if id
+    end
+end

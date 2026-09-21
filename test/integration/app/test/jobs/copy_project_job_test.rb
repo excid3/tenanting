@@ -15,6 +15,6 @@ class CopyProjectJobTest < ActiveJob::TestCase
   test "jobs enqueued without an account raise when they query" do
     CopyProjectJob.perform_later(projects(:one))
 
-    assert_raises(AccountScoped::MissingAccountError) { perform_enqueued_jobs }
+    assert_raises(AccountScoping::MissingAccountError) { perform_enqueued_jobs }
   end
 end

@@ -14,7 +14,11 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
       assert_match "def slug", content
     end
     assert_file "app/models/current.rb", /attribute :account, :all_accounts/
-    assert_file "app/models/concerns/account_scoped.rb", /raise MissingAccountError/
+    assert_file "app/models/concerns/account_scoping.rb" do |content|
+      assert_match "def scoped_to_account(through: nil, optional: false)", content
+      assert_match "raise MissingAccountError", content
+    end
+    assert_file "app/models/application_record.rb", /  primary_abstract_class\n\n  include AccountScoping\n/
     assert_file "app/controllers/concerns/tenanting.rb", /Account\.find_by\(id: account_id\)/
     assert_file "app/controllers/application_controller.rb", /class ApplicationController < ActionController::Base\n  include Tenanting\n/
     assert_file "config/initializers/tenanting.rb" do |content|
@@ -88,6 +92,7 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
         #{'gem "turbo-rails"' if turbo}
       RUBY
       write "config/routes.rb", "Rails.application.routes.draw do\nend\n"
+      write "app/models/application_record.rb", "class ApplicationRecord < ActiveRecord::Base\n  primary_abstract_class\nend\n"
       write "app/controllers/application_controller.rb", <<~RUBY
         class ApplicationController < ActionController::Base
         #{"  include Authentication" if authentication}

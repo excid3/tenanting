@@ -1,4 +1,5 @@
 class Project < ApplicationRecord
-  include AccountScoped
+  scoped_to_account
+
   has_many :tasks, dependent: :destroy
 end
