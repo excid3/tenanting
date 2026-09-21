@@ -1,0 +1,44 @@
+module Tenanting
+  extend ActiveSupport::Concern
+
+  included do
+    before_action :require_account
+  end
+
+  class_methods do
+    def allow_accountless_access(**options)
+      skip_before_action :require_account, **options
+    end
+  end
+
+  private
+    def require_account
+      resume_account || request_account
+    end
+
+    def resume_account
+      Current.account ||= find_account_by_slug
+    end
+
+    def find_account_by_slug
+      if account_id = request.env["account_slug.id"]
+<% if authentication? -%>
+        Current.user&.accounts&.find_by(id: account_id)
+<% else -%>
+        Account.find_by(id: account_id)
+<% end -%>
+      end
+    end
+
+    def request_account
+<% if authentication? -%>
+      if request.env["account_slug.id"]
+        head :not_found
+      else
+        redirect_to accounts_url(script_name: "")
+      end
+<% else -%>
+      head :not_found
+<% end -%>
+    end
+end

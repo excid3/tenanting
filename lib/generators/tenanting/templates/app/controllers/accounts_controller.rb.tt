@@ -1,0 +1,8 @@
+class AccountsController < ApplicationController
+  allow_accountless_access
+
+  def index
+    @accounts = Current.user.accounts.order(:name)
+    redirect_to root_url(script_name: @accounts.first.slug) if @accounts.one?
+  end
+end

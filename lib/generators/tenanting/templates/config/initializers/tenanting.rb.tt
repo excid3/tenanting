@@ -1,0 +1,93 @@
+# Account URLs are prefixed with the account ID: /123/projects/1
+#
+# The middleware moves that prefix from PATH_INFO into SCRIPT_NAME, the same way a mounted
+# app is handled. Routes don't need an :account_id segment, and URL helpers generate
+# account-prefixed URLs for the current request automatically.
+module AccountSlug
+  PATTERN = %r{\A/(\d+)(?=/|\z)}
+
+  class Extractor
+    def initialize(app)
+      @app = app
+    end
+
+    def call(env)
+      request = ActionDispatch::Request.new(env)
+
+      if match = PATTERN.match(request.path_info)
+        request.env["account_slug.id"] = match[1].to_i
+        request.script_name = request.script_name.to_s + match[0]
+        request.path_info = match.post_match.presence || "/"
+      end
+
+      @app.call(env)
+    end
+  end
+end
+
+Rails.application.config.middleware.use AccountSlug::Extractor
+
+# Jobs run in the account they were enqueued from. This covers every Active Job,
+# including deliver_later, not just jobs that inherit from ApplicationJob.
+module AccountScopedJob
+  attr_reader :current_account
+
+  def initialize(...)
+    super
+    @current_account = Current.account
+  end
+
+  def serialize
+    super.merge("current_account" => current_account&.to_global_id&.to_s)
+  end
+
+  def deserialize(job_data)
+    super
+    @current_account = GlobalID::Locator.locate(job_data["current_account"]) if job_data["current_account"]
+  end
+
+  def perform_now
+    if current_account
+      Current.set(account: current_account) { super }
+    else
+      super
+    end
+  end
+end
+
+ActiveSupport.on_load(:active_job) { prepend AccountScopedJob }
+
+# Adds switch_to_account(account_or_id) to the console, since scoped models raise until
+# an account is set.
+Rails.application.console do
+  require "irb/helper_method"
+
+  IRB::HelperMethod.register :switch_to_account, Class.new(IRB::HelperMethod::Base) {
+    description "Sets Current.account for the console session."
+
+    def execute(account)
+      Current.account = account.is_a?(Account) ? account : Account.find(account)
+      puts "Switched to account #{Current.account.id} (#{Current.account.name})"
+      Current.account
+    end
+  }
+end
+<% if turbo? -%>
+
+# Turbo Stream broadcasts render outside of a request, so render them with the account
+# prefix to keep links in broadcast partials pointing into the account.
+module AccountScopedTurboStreams
+  private
+    def render_format(format, **rendering)
+      if Current.account
+        ApplicationController.renderer.new(script_name: Current.account.slug).render(formats: [ format ], **rendering)
+      else
+        super
+      end
+    end
+end
+
+Rails.application.config.after_initialize do
+  Turbo::StreamsChannel.singleton_class.prepend AccountScopedTurboStreams
+end
+<% end -%>

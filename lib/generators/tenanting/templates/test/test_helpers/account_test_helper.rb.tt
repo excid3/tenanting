@@ -1,0 +1,29 @@
+module AccountTestHelper
+  def switch_to_account(account)
+    Current.account = account
+  end
+end
+
+module AccountIntegrationTestHelper
+  # Also prefixes generated URLs with the account, so requests resolve it from the path.
+  def switch_to_account(account)
+    super
+    @switched_account = account
+    self.default_url_options = default_url_options.merge(script_name: account&.slug)
+  end
+
+  # Rails resets Current around each request, so restore the account for assertions afterwards.
+  %i[ get post patch put head delete follow_redirect! ].each do |method|
+    define_method(method) do |*args, **options|
+      super(*args, **options).tap { Current.account = @switched_account }
+    end
+  end
+end
+
+ActiveSupport.on_load(:active_support_test_case) do
+  include AccountTestHelper
+end
+
+ActiveSupport.on_load(:action_dispatch_integration_test) do
+  include AccountIntegrationTestHelper
+end

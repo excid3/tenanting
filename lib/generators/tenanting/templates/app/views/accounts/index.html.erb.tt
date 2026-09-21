@@ -1,0 +1,7 @@
+<h1>Choose an account</h1>
+
+<ul>
+  <%% @accounts.each do |account| %>
+    <li><%%= link_to account.name, root_url(script_name: account.slug) %></li>
+  <%% end %>
+</ul>

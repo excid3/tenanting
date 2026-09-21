@@ -1,0 +1,14 @@
+class Account < ApplicationRecord
+<% if authentication? -%>
+  has_many :memberships, dependent: :destroy
+  has_many :users, through: :memberships
+
+<% end -%>
+  validates :name, presence: true
+
+  # The path prefix for this account's URLs. Pass it as the script_name to link into an
+  # account from outside of it, e.g. root_url(script_name: account.slug).
+  def slug
+    "/#{id}"
+  end
+end

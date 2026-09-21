@@ -1,0 +1,6 @@
+class Membership < ApplicationRecord
+  belongs_to :user
+  belongs_to :account
+
+  validates :user, uniqueness: { scope: :account }
+end

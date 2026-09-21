@@ -1,0 +1,5 @@
+require "minitest/autorun"
+require "rails"
+require "active_record"
+require "rails/generators/test_case"
+require "generators/tenanting/tenanting_generator"

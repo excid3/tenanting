@@ -1,0 +1,12 @@
+class CreateMemberships < ActiveRecord::Migration<%= migration_version %>
+  def change
+    create_table :memberships do |t|
+      t.references :user, null: false, foreign_key: true, index: false
+      t.references :account, null: false, foreign_key: true
+
+      t.timestamps
+    end
+
+    add_index :memberships, %i[ user_id account_id ], unique: true
+  end
+end

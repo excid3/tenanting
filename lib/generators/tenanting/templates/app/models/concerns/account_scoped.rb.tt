@@ -1,0 +1,62 @@
+# Include in models that belong to an account to scope all their queries to Current.account.
+#
+#   class Project < ApplicationRecord
+#     include AccountScoped
+#   end
+#
+# Querying without Current.account raises, so a missing account is caught instead of
+# silently reading or writing across accounts. Be explicit instead:
+#
+#   Current.set(account: account) { Project.all }     # One account
+#   AccountScoped.across_accounts { Project.count }  # Every account
+module AccountScoped
+  extend ActiveSupport::Concern
+
+  class MissingAccountError < StandardError; end
+
+  def self.across_accounts(&)
+    Current.set(all_accounts: true, &)
+  end
+
+  included do
+    belongs_to :account, default: -> { Current.account }
+
+    default_scope all_queries: true do
+      if Current.all_accounts
+        all
+      elsif Current.account
+        where(account: Current.account)
+      else
+        raise MissingAccountError, "#{model.name} is scoped to an account, but Current.account isn't set. " \
+          "Use Current.set(account: account) { ... } or AccountScoped.across_accounts { ... }."
+      end
+    end
+
+    validate :account_is_current, if: -> { Current.account && !Current.all_accounts }
+    validate :account_is_unchanged, on: :update
+    validate :associations_belong_to_same_account
+  end
+
+  private
+    # Guards against mass-assigning another account, e.g. params.expect(project: [ :name, :account_id ])
+    def account_is_current
+      errors.add(:account, "must be the current account") unless account_id == Current.account.id
+    end
+
+    def account_is_unchanged
+      errors.add(:account, "can't be changed") if account_id_changed?
+    end
+
+    # Prevents pointing at another account's records by ID, e.g. Task.create!(project_id: params[:project_id])
+    def associations_belong_to_same_account
+      self.class.reflect_on_all_associations(:belongs_to).each do |association|
+        next if association.name == :account || association.polymorphic?
+        next unless association.klass < AccountScoped
+        next unless (id = self[association.foreign_key]) && (will_save_change_to_attribute?(association.foreign_key) || will_save_change_to_account_id?)
+
+        if association.klass.unscoped.where(association.association_primary_key => id).where.not(account_id: account_id).exists?
+          errors.add(association.name, "must belong to the same account")
+        end
+      end
+    end
+end

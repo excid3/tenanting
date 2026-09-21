@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Builds a fresh Rails app, runs the authentication and tenanting generators, adds the
+# account-scoped models and tests from test/integration/app, and runs the app's test suite.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APP="${TMPDIR:-/tmp}/tenanting-integration"
+
+rm -rf "$APP"
+cd "$(dirname "$APP")" # Outside any other Gemfile
+rails new "$APP" --skip-git --skip-docker --skip-kamal --skip-thruster --skip-solid --skip-ci \
+  --skip-brakeman --skip-rubocop --skip-bundle-audit --skip-dev-gems --skip-bundle > /dev/null
+cd "$APP"
+
+cat >> Gemfile <<GEMS
+gem "tenanting", path: "$ROOT"
+gem "json", "< 3" # json 3.0 breaks signed cookies in Rails 8.1
+GEMS
+bundle install --quiet
+
+bin/rails generate authentication
+bin/rails generate tenanting
+bin/rails generate scaffold Project name:string account:references --quiet
+bin/rails generate model Task title:string project:references account:references --quiet
+sed -i.bak 's/^  resources :projects$/  resources :projects\n  root "projects#index"/' config/routes.rb && rm config/routes.rb.bak
+echo 'Rails.application.config.action_mailer.default_url_options = { host: "example.com" }' > config/initializers/mailer_host.rb
+cp -R "$ROOT/test/integration/app/." .
+
+bin/rails db:prepare > /dev/null
+bin/rails test
