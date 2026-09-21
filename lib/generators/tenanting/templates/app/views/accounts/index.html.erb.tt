@@ -4,6 +4,8 @@
   <%% @accounts.each do |account| %>
 <% if path_prefix? -%>
     <li><%%= link_to account.name, root_url(script_name: account.slug) %></li>
+<% elsif domain? -%>
+    <li><%%= link_to account.name, root_url(host: account.host) %></li>
 <% else -%>
     <li><%%= button_to account.name, account_switch_path(account) %></li>
 <% end -%>

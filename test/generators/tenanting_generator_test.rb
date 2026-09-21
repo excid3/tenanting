@@ -97,6 +97,50 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
     assert_file "config/routes.rb", /resources :accounts, only: :index do\n    resource :switch, only: :create, module: :accounts\n  end/
   end
 
+  test "serves accounts from subdomains and custom domains with --account-from=domain" do
+    create_app turbo: true, mailer: true
+    run_generator %w[ --account-from=domain ]
+
+    assert_file "app/models/account.rb" do |content|
+      assert_match "def self.find_by_host(host)", content
+      assert_match "def host", content
+      assert_no_match "def slug", content
+    end
+    assert_migration "db/migrate/create_accounts.rb" do |content|
+      assert_match "t.string :subdomain, null: false, index: { unique: true }", content
+      assert_match "t.string :domain, index: { unique: true }", content
+    end
+    assert_file "test/fixtures/accounts.yml", /subdomain: one/
+    assert_file "app/controllers/concerns/tenanting.rb" do |content|
+      assert_match "Account.find_by_host(request.host)", content
+      assert_no_match "account_slug", content
+      assert_no_match "cookies", content
+    end
+    assert_file "config/environments/development.rb", /config\.x\.account_domain = "localhost"/
+    assert_file "config/environments/production.rb", /config\.x\.account_domain = "example\.com"/
+    assert_file "config/initializers/tenanting.rb" do |content|
+      assert_match "module AccountDomain", content
+      assert_no_match "AccountSlug", content
+      assert_no_match "Turbo", content
+    end
+    assert_file "app/mailers/application_mailer.rb", /super\.merge\(host: Current\.account\.host\)/
+    assert_file "test/test_helpers/account_test_helper.rb" do |content|
+      assert_match "host! account ? account.host", content
+      assert_no_match "cookies", content
+    end
+    assert_no_file "app/controllers/accounts/switches_controller.rb"
+  end
+
+  test "links the account picker to account domains with --account-from=domain and authentication" do
+    create_app authentication: true
+    run_generator %w[ --account-from=domain ]
+
+    assert_file "app/controllers/concerns/tenanting.rb", /Current\.user&\.accounts&\.find_by_host\(request\.host\)/
+    assert_file "app/controllers/accounts_controller.rb", /root_url\(host: @accounts\.first\.host\), allow_other_host: true/
+    assert_file "app/views/accounts/index.html.erb", /root_url\(host: account\.host\)/
+    assert_file "config/routes.rb", /resources :accounts, only: :index\n/
+  end
+
   test "renders Turbo Stream broadcasts in the account when turbo-rails is installed" do
     create_app turbo: true
     run_generator
@@ -136,6 +180,7 @@ class TenantingGeneratorTest < Rails::Generators::TestCase
         #{'gem "turbo-rails"' if turbo}
       RUBY
       write "config/routes.rb", "Rails.application.routes.draw do\nend\n"
+      %w[ development test production ].each { |env| write "config/environments/#{env}.rb", "Rails.application.configure do\nend\n" }
       write "app/models/application_record.rb", "class ApplicationRecord < ActiveRecord::Base\n  primary_abstract_class\nend\n"
       write "app/controllers/application_controller.rb", <<~RUBY
         class ApplicationController < ActionController::Base

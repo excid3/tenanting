@@ -11,8 +11,9 @@ class TenantingGenerator < Rails::Generators::Base
 
   source_root File.expand_path("templates", __dir__)
 
-  class_option :account_from, type: :string, default: "path", enum: %w[ path cookie ],
-    desc: "Where requests find their account: a URL path prefix (/123/projects) or a signed cookie"
+  class_option :account_from, type: :string, default: "path", enum: %w[ path domain cookie ],
+    desc: "Where requests find their account: a URL path prefix (/123/projects), the domain " \
+      "(acme.example.com or a custom domain), or a signed cookie"
 
   def create_tenanting_files
     template "app/models/account.rb"
@@ -33,6 +34,18 @@ class TenantingGenerator < Rails::Generators::Base
       inject_into_class "app/models/current.rb", "Current", "  attribute :account, :all_accounts\n"
     else
       template "app/models/current.rb"
+    end
+  end
+
+  def configure_account_domain
+    if domain?
+      { development: "localhost", test: "example.com", production: "example.com" }.each do |env, domain|
+        environment <<~RUBY, env: env
+          # Accounts are served from subdomains of this domain, like acme.#{domain}, and from custom domains.
+          config.x.account_domain = "#{domain}"
+
+        RUBY
+      end
     end
   end
 
@@ -68,15 +81,15 @@ class TenantingGenerator < Rails::Generators::Base
   end
 
   def configure_mailers
-    if path_prefix? && exist?("app/mailers/application_mailer.rb")
-      inject_into_class "app/mailers/application_mailer.rb", "ApplicationMailer", <<~RUBY.indent(2)
-        # Links in emails point into the account they were sent from, including with deliver_later.
-        def default_url_options
-          super.merge(script_name: Current.account&.slug)
-        end
+    return if cookie? || !exist?("app/mailers/application_mailer.rb")
 
-      RUBY
-    end
+    inject_into_class "app/mailers/application_mailer.rb", "ApplicationMailer", <<~RUBY.indent(2)
+      # Links in emails point into the account they were sent from, including with deliver_later.
+      def default_url_options
+        #{path_prefix? ? "super.merge(script_name: Current.account&.slug)" : "Current.account ? super.merge(host: Current.account.host) : super"}
+      end
+
+    RUBY
   end
 
   def configure_routes
@@ -114,6 +127,10 @@ class TenantingGenerator < Rails::Generators::Base
 
     def path_prefix?
       options[:account_from] == "path"
+    end
+
+    def domain?
+      options[:account_from] == "domain"
     end
 
     def cookie?

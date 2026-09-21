@@ -1,5 +1,11 @@
 one:
   name: Account One
+<% if domain? -%>
+  subdomain: one
+<% end -%>
 
 two:
   name: Account Two
+<% if domain? -%>
+  subdomain: two
+<% end -%>

@@ -2,6 +2,10 @@ class CreateAccounts < ActiveRecord::Migration<%= migration_version %>
   def change
     create_table :accounts do |t|
       t.string :name, null: false
+<% if domain? -%>
+      t.string :subdomain, null: false, index: { unique: true }
+      t.string :domain, index: { unique: true }
+<% end -%>
 
       t.timestamps
     end

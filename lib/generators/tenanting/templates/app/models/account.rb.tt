@@ -1,10 +1,49 @@
 class Account < ApplicationRecord
+<% if domain? -%>
+  RESERVED_SUBDOMAINS = %w[ www app admin api assets mail ]
+  LABEL = /[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/ # One part of a domain name
+
+<% end -%>
 <% if authentication? -%>
   has_many :memberships, dependent: :destroy
   has_many :users, through: :memberships
 
 <% end -%>
   validates :name, presence: true
+<% if domain? -%>
+  validates :subdomain, presence: true, uniqueness: true, exclusion: { in: RESERVED_SUBDOMAINS },
+    format: { with: /\A#{LABEL}\z/, message: "can only contain letters, numbers, and dashes" }
+  validates :domain, uniqueness: true, allow_nil: true,
+    format: { with: /\A(?:#{LABEL}\.)+[a-z]{2,}\z/, message: "isn't a valid domain" }
+  validate :domain_is_custom
+
+  normalizes :subdomain, with: ->(subdomain) { subdomain.strip.downcase }
+  normalizes :domain, with: ->(domain) { domain.strip.downcase.delete_suffix(".").presence }
+
+  before_validation { self.subdomain = name&.parameterize if subdomain.blank? }
+
+  # The account served from a host: a subdomain of the app's domain, or a custom domain.
+  def self.find_by_host(host)
+    if subdomain = AccountDomain.subdomain_of(host)
+      find_by(subdomain: subdomain)
+    else
+      find_by(domain: host)
+    end
+  end
+
+  # The host for this account's URLs. Pass it as the host to link into an account from outside
+  # of it, e.g. root_url(host: account.host).
+  def host
+    domain || "#{subdomain}.#{AccountDomain.domain}"
+  end
+
+  private
+    def domain_is_custom
+      if domain == AccountDomain.domain || domain&.end_with?(".#{AccountDomain.domain}")
+        errors.add(:domain, "must be your own domain. Use the subdomain for #{AccountDomain.domain} addresses")
+      end
+    end
+<% end -%>
 <% if path_prefix? -%>
 
   # The path prefix for this account's URLs. Pass it as the script_name to link into an

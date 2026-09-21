@@ -4,6 +4,7 @@
 # and runs the app's test suite.
 #
 #   bin/integration         # Accounts in the URL path
+#   bin/integration domain  # Accounts on subdomains and custom domains
 #   bin/integration cookie  # Accounts in a cookie
 set -euo pipefail
 

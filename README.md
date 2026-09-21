@@ -22,6 +22,7 @@ and every query on those tables is scoped to the current account.
 - [Scoping models](#scoping-models)
 - [The current account](#the-current-account)
 - [Controllers and URLs](#controllers-and-urls)
+- [Accounts on subdomains and custom domains](#accounts-on-subdomains-and-custom-domains)
 - [Accounts without URL prefixes](#accounts-without-url-prefixes)
 - [Background jobs, mailers, and broadcasts](#background-jobs-mailers-and-broadcasts)
 - [Console, seeds, and data migrations](#console-seeds-and-data-migrations)
@@ -55,6 +56,7 @@ account with `--account-from`:
 | Option | URLs | |
 | --- | --- | --- |
 | `--account-from=path` (default) | `example.com/123/projects` | [Controllers and URLs](#controllers-and-urls) |
+| `--account-from=domain` | `acme.example.com/projects` or `projects.acme.com/projects` | [Subdomains and custom domains](#accounts-on-subdomains-and-custom-domains) |
 | `--account-from=cookie` | `example.com/projects` | [Without URL prefixes](#accounts-without-url-prefixes) |
 
 Then scope your models to an account:
@@ -69,11 +71,11 @@ end
 
 | File | What it does |
 | --- | --- |
-| `app/models/account.rb` | The tenant. `#slug` returns its URL prefix, `/123` (path prefixes only) |
+| `app/models/account.rb` | The tenant. `#slug` returns its URL prefix, `/123`, or `#host` its domain |
 | `app/models/current.rb` | Adds `attribute :account, :all_accounts` (created if it doesn't exist) |
 | `app/models/concerns/account_scoping.rb` | `scoped_to_account`, included in `ApplicationRecord` |
 | `app/controllers/concerns/tenanting.rb` | Sets `Current.account` for each request, included in `ApplicationController` |
-| `config/initializers/tenanting.rb` | URL prefix middleware (path prefixes only), plus the account for jobs, broadcasts, and the console |
+| `config/initializers/tenanting.rb` | URL prefix middleware or the app's domain, plus the account for jobs, broadcasts, and the console |
 | `db/migrate/*_create_accounts.rb` | The `accounts` table |
 | `test/test_helpers/account_test_helper.rb` | `switch_to_account` for tests |
 | `test/fixtures/accounts.yml` | Two accounts, `one` and `two` |
@@ -292,6 +294,99 @@ when the user only has one.
 Without authentication, any account ID in the URL is accepted, and requests without one return
 404. Add your own authorization in `find_account`.
 
+## Accounts on subdomains and custom domains
+
+Generate with `--account-from=domain` to serve each account from its own subdomain, and
+optionally from a custom domain:
+
+```sh
+bin/rails generate tenanting --account-from=domain
+```
+
+Accounts get a unique `subdomain`, which defaults to their name, and an optional, unique
+`domain`:
+
+```ruby
+Account.create!(name: "Acme")                                   # acme.example.com
+Account.create!(name: "Initech", domain: "tps.initech.com")     # tps.initech.com
+```
+
+The generator sets the app's domain in each environment. Change it to your domain in
+`config/environments/production.rb`:
+
+```ruby
+config.x.account_domain = "example.com"
+```
+
+In development, it's `localhost`. Browsers resolve every subdomain of `localhost`, so accounts
+are at `acme.localhost:3000` without any DNS setup, and Rails allows those hosts by default.
+
+The `Tenanting` concern finds the account with `Account.find_by_host(request.host)`. A subdomain
+of the app's domain is looked up by `subdomain`, and any other host by `domain`. `Account#host`
+returns the custom domain if there is one, and the subdomain otherwise. Use it to link into an
+account:
+
+```erb
+<%= link_to account.name, root_url(host: account.host) %>
+```
+
+Routes and URL helpers don't change, and paths like `project_path(@project)` stay on the current
+host. Emails link to the host of the account they were sent from.
+
+With authentication, the app's domain and `www` show the account picker, which links to each
+account's host. A host for an account the user isn't a member of, or for no account at all,
+returns 404 Not Found.
+
+Subdomains are validated as DNS labels, and `www`, `app`, `admin`, `api`, `assets`, and `mail` are
+reserved. Edit `Account::RESERVED_SUBDOMAINS` to reserve others, like any subdomains your app
+uses itself. Custom domains can't be on the app's domain, so an account can't take over another
+account's subdomain.
+
+### Signing in
+
+Cookies belong to the host that set them, so users sign in separately on each account's host,
+whichever authentication library you use. Custom domains always work this way, because browsers
+never share cookies between different domains.
+
+To share one sign-in across subdomains, set the cookie domain to your app's domain, like
+`domain: ".example.com"`, in your authentication library: on the session cookie with the Rails
+authentication generator, the session store with Devise, or `config.cookie_domain` with
+Clearance. Avoid `domain: :all`, which on a custom domain covers that domain's parent instead.
+Users still sign in separately on custom domains.
+
+Session cookies aren't tied to a host, though. An account that controls its custom domain's DNS
+could collect the session cookies of members who sign in there and use them on the app's domain,
+including in other accounts those members belong to. If that matters for your app, store the host
+on each session and only accept it on that host, or require members to sign in on the app's
+domain.
+
+### Custom domains
+
+Tenanting finds accounts by custom domain, but pointing a domain at your app is up to you. Each
+custom domain needs DNS that points at your app, a TLS certificate, and, if you've set
+`config.hosts`, to be allowed there. Consider verifying that an account owns a domain before
+saving it.
+
+### Testing
+
+In integration tests, `switch_to_account` sends requests to the account's host. Sign ins belong
+to a host, just like in a browser, so switch accounts before signing in:
+
+```ruby
+setup do
+  switch_to_account accounts(:one)
+  sign_in_as users(:one)
+end
+
+test "index" do
+  get projects_url  # GET http://one.example.com/projects
+  assert_response :success
+end
+```
+
+Fixtures need a subdomain for each account. The domain is `example.com` in tests, so
+`accounts(:one)` is at `one.example.com`.
+
 ## Accounts without URL prefixes
 
 Some apps don't want the account in the URL. Generate with `--account-from=cookie` to keep the
@@ -452,20 +547,6 @@ end
 
 The generated code is yours to change. Some common changes:
 
-### Subdomains or custom domains instead of a path prefix
-
-Remove the `AccountSlug` middleware from `config/initializers/tenanting.rb`, add a column to
-accounts, and look the account up from the request in the `Tenanting` concern:
-
-```ruby
-def find_account
-  Current.user&.accounts&.find_by(subdomain: request.subdomain)
-end
-```
-
-Also change `Account#slug`, which is used as the URL prefix in mailers, broadcasts, and tests.
-Instead, set the `host` in those places, or set `subdomain:` in your URL helpers.
-
 ### Public IDs instead of database IDs
 
 `AccountSlug::PATTERN` matches a numeric first path segment. To keep database IDs out of URLs,
@@ -515,7 +596,7 @@ It does not cover:
 | `ActsAsTenant.current_tenant = account` | `Current.account = account` |
 | `ActsAsTenant.with_tenant(account) { }` | `Current.set(account: account) { }` |
 | `ActsAsTenant.without_tenant { }` | `AccountScoping.across_accounts { }` |
-| `set_current_tenant_by_subdomain` | Path prefixes, or see [Subdomains](#subdomains-or-custom-domains-instead-of-a-path-prefix) |
+| `set_current_tenant_by_subdomain` | `--account-from=domain` |
 | `set_current_tenant_through_filter` | `--account-from=cookie` and `switch_to_account`, or edit `find_account` |
 | `config.require_tenant = true` | Always on |
 | `validates_uniqueness_to_tenant :name` | `validates :name, uniqueness: { scope: :account_id }` |
@@ -547,10 +628,10 @@ bundle exec rake test              # Generator tests
 bundle exec rake test:integration  # Generates a Rails app and runs its tests
 ```
 
-The integration task creates a new Rails app for each of `--account-from=path` and
-`--account-from=cookie`, runs the authentication and tenanting generators, adds the models and
+The integration task creates a new Rails app for each of `--account-from=path`,
+`--account-from=domain`, and `--account-from=cookie`, runs the authentication and tenanting generators, adds the models and
 tests from `test/integration/app` and `test/integration/<mode>`, and runs the app's test suite.
-Run one mode with `bin/integration cookie`.
+Run one mode with `bin/integration domain`.
 
 ## License
 
