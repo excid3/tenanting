@@ -193,7 +193,8 @@ reloading individual records, not just to reads. Scoped models also get three va
   `params.expect(project: [ :name, :account_id ])`, can't create a record in another account.
   The same goes for a through model's parent, like a `project_id` from another account.
 - **The account can't change** once a record is saved, including by moving a through model to a
-  parent in another account.
+  parent in another account. To move records on purpose, see
+  [Moving records between accounts](#moving-records-between-accounts).
 - **`belongs_to` records must be in the same account.** `Task.create!(tag_id: params[:tag_id])`
   fails when the tag belongs to another account, whether it's assigned by ID or as a record.
 
@@ -244,6 +245,20 @@ end
 `across_accounts` only turns off account scoping. Unlike `unscoped`, other default scopes on the
 model, such as a soft-delete scope, still apply. Both are easy to search for when reviewing code
 that crosses accounts.
+
+### Moving records between accounts
+
+Records can't change their account, except inside `across_accounts`, which is how a transfer
+says it means to:
+
+```ruby
+AccountScoping.across_accounts do
+  project.update!(account: other_account)
+end
+```
+
+Through models move with their parent, or by moving to a parent in another account. Records the
+moved record `belongs_to` must be in its new account, so move them together.
 
 ## Controllers and URLs
 
