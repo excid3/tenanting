@@ -30,6 +30,8 @@ bin/rails generate scaffold Project name:string account:references --quiet
 bin/rails generate model Tag name:string account:references --quiet
 bin/rails generate model Task title:string project:references tag:references --quiet
 bin/rails generate model Comment body:string task:references --quiet
+bin/rails generate migration AddProjectsCountToAccounts projects_count:integer --quiet
+sed -i.bak 's/add_column :accounts, :projects_count, :integer/&, default: 0, null: false/' db/migrate/*_add_projects_count_to_accounts.rb
 sed -i.bak 's/t.references :account, null: false/t.references :account, null: true/' db/migrate/*_create_tags.rb
 sed -i.bak 's/t.references :tag, null: false/t.references :tag, null: true/' db/migrate/*_create_tasks.rb
 rm db/migrate/*.bak

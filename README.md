@@ -114,7 +114,9 @@ class Project < ApplicationRecord
 end
 ```
 
-This adds `belongs_to :account` and a default scope on `Current.account`:
+This adds `belongs_to :account` and a default scope on `Current.account`. Other options go to
+that association, like `scoped_to_account counter_cache: true` for an `accounts.projects_count`
+column:
 
 ```ruby
 Current.account = basecamp
