@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name = "tenanting"
-  spec.version = "0.1.0"
+  spec.version = "0.2.0"
   spec.authors = [ "Chris Oliver" ]
   spec.email = [ "excid3@gmail.com" ]
 
